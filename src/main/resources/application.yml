@@ -9,7 +9,11 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
     hikari:
+      maximum-pool-size: 2
+      minimum-idle: 0
       connection-timeout: 10000
+      idle-timeout: 30000
+      max-lifetime: 120000
   jpa:
     hibernate:
       ddl-auto: validate
