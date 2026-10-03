@@ -23,6 +23,9 @@ public class WatchCueApplication {
 
 @Entity
 @Table(name="watch_items")
+@lombok.Getter
+@lombok.Setter
+@lombok.NoArgsConstructor
 class WatchItem {
   @Id UUID id=UUID.randomUUID();
   @Column(nullable=false) String title;
