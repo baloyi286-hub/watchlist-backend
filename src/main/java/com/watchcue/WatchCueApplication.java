@@ -82,25 +82,47 @@ class WatchItemController {
 
   @PostMapping("/{id}/watched") WatchItem watched(@PathVariable UUID id){WatchItem i=get(id);i.status="WATCHED";i.watchedAt=Instant.now();return repo.save(i);}
   @PostMapping("/{id}/unwatched") WatchItem unwatched(@PathVariable UUID id){WatchItem i=get(id);i.status="UNWATCHED";i.watchedAt=null;return repo.save(i);}
-  @PostMapping("/{id}/trailer/refresh") WatchItem trailer(@PathVariable UUID id){WatchItem i=get(id);findTrailer(i);return repo.save(i);}
+  @PostMapping("/{id}/trailer/refresh") WatchItem trailer(@PathVariable UUID id){
+    WatchItem i=get(id);
+    findTrailer(i);
+    return repo.save(i);
+  }
   @DeleteMapping("/{id}") void delete(@PathVariable UUID id){repo.deleteById(id);}
   private WatchItem get(UUID id){return repo.findById(id).orElseThrow();}
 
   @SuppressWarnings("unchecked")
   private void findTrailer(WatchItem i){
-    if(youtubeKey==null||youtubeKey.isBlank()) return;
+    if(youtubeKey==null||youtubeKey.isBlank()) {
+      throw new org.springframework.web.server.ResponseStatusException(
+        org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+        "YouTube trailer search is not configured. Add YOUTUBE_API_KEY to the backend environment."
+      );
+    }
     try{
       String url="https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=1&q="+
         java.net.URLEncoder.encode(i.title+" official trailer",java.nio.charset.StandardCharsets.UTF_8)+"&key="+youtubeKey;
       Map<String,Object> body=rest.get().uri(url).retrieve().body(Map.class);
-      List<Map<String,Object>> items=(List<Map<String,Object>>)body.get("items");
-      if(items!=null&&!items.isEmpty()){
-        Map<String,Object> first=items.get(0), id=(Map<String,Object>)first.get("id"), snippet=(Map<String,Object>)first.get("snippet");
-        i.youtubeVideoId=(String)id.get("videoId"); i.youtubeTitle=(String)snippet.get("title");
-        Map<String,Object> thumbs=(Map<String,Object>)snippet.get("thumbnails"), medium=(Map<String,Object>)thumbs.get("medium");
-        i.youtubeThumbnail=medium==null?null:(String)medium.get("url");
+      List<Map<String,Object>> items=body==null?null:(List<Map<String,Object>>)body.get("items");
+      if(items==null||items.isEmpty()) {
+        throw new org.springframework.web.server.ResponseStatusException(
+          org.springframework.http.HttpStatus.NOT_FOUND,
+          "No embeddable YouTube trailer found for "+i.title
+        );
       }
-    }catch(Exception ignored){}
+      Map<String,Object> first=items.get(0), id=(Map<String,Object>)first.get("id"), snippet=(Map<String,Object>)first.get("snippet");
+      i.youtubeVideoId=(String)id.get("videoId");
+      i.youtubeTitle=(String)snippet.get("title");
+      Map<String,Object> thumbs=(Map<String,Object>)snippet.get("thumbnails"), medium=(Map<String,Object>)thumbs.get("medium");
+      i.youtubeThumbnail=medium==null?null:(String)medium.get("url");
+    } catch(org.springframework.web.server.ResponseStatusException e) {
+      throw e;
+    } catch(Exception e) {
+      throw new org.springframework.web.server.ResponseStatusException(
+        org.springframework.http.HttpStatus.BAD_GATEWAY,
+        "YouTube trailer search failed: "+e.getMessage(),
+        e
+      );
+    }
   }
 }
 
