@@ -130,5 +130,14 @@ class TvController {
 
 @org.springframework.context.annotation.Configuration
 class CorsConfig implements WebMvcConfigurer {
-  public void addCorsMappings(CorsRegistry r){r.addMapping("/api/**").allowedOriginPatterns("http://localhost:*","https://*").allowedMethods("*").allowedHeaders("*");}
+  @Override
+  public void addCorsMappings(CorsRegistry registry) {
+    registry.addMapping("/api/**")
+        .allowedOriginPatterns("http://localhost:*", "https://*.vercel.app")
+        .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+        .allowedHeaders("*")
+        .exposedHeaders("*")
+        .allowCredentials(false)
+        .maxAge(3600);
+  }
 }
