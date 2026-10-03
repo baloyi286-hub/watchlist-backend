@@ -1,18 +1,22 @@
 server:
   port: ${PORT:8080}
+
 spring:
   application:
     name: watchcue
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/watchcue}
-    username: ${SPRING_DATASOURCE_USERNAME:watchcue}
-    password: ${SPRING_DATASOURCE_PASSWORD:watchcue}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      connection-timeout: 10000
   jpa:
     hibernate:
       ddl-auto: validate
     open-in-view: false
   flyway:
     enabled: true
+
 watchcue:
   youtube:
     api-key: ${YOUTUBE_API_KEY:}
