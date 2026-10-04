@@ -25,5 +25,4 @@ watchcue:
   youtube:
     api-key: ${YOUTUBE_API_KEY:}
   tv:
-    notification-url: ${TV_NOTIFICATION_URL:}
-    api-key: ${TV_API_KEY:}
+    bridge-key: ${TV_BRIDGE_KEY:}
