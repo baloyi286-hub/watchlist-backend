@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -58,6 +59,24 @@ class TvSettings {
   @Column(name="last_periodic_sent_at") Instant lastPeriodicSentAt;
 }
 interface TvSettingsRepository extends JpaRepository<TvSettings,Long> {}
+
+@Entity
+@Table(name="tv_jobs")
+@lombok.Getter
+@lombok.Setter
+@lombok.NoArgsConstructor
+class TvJob {
+  @Id UUID id=UUID.randomUUID();
+  @Column(name="device_id",nullable=false) String deviceId;
+  @Column(nullable=false) String title;
+  @Column(nullable=false,columnDefinition="text") String message;
+  @Column(nullable=false) String status="PENDING";
+  @Column(name="created_at",nullable=false) Instant createdAt=Instant.now();
+  @Column(name="delivered_at") Instant deliveredAt;
+}
+interface TvJobRepository extends JpaRepository<TvJob,UUID> {
+  List<TvJob> findTop10ByDeviceIdAndStatusOrderByCreatedAtAsc(String deviceId,String status);
+}
 
 @RestController
 @RequestMapping("/api/v1/watch-items")
@@ -129,27 +148,69 @@ class WatchItemController {
 @RestController
 @RequestMapping("/api/v1/tv")
 class TvController {
-  private final TvSettingsRepository settings; private final WatchItemRepository items; private final RestClient rest=RestClient.create();
-  @Value("${watchcue.tv.notification-url:}") String tvUrl;
-  @Value("${watchcue.tv.api-key:}") String tvKey;
-  TvController(TvSettingsRepository settings,WatchItemRepository items){this.settings=settings;this.items=items;}
+  private final TvSettingsRepository settings;
+  private final WatchItemRepository items;
+  private final TvJobRepository jobs;
+  @Value("${watchcue.tv.bridge-key:}") String bridgeKey;
+
+  TvController(TvSettingsRepository settings,WatchItemRepository items,TvJobRepository jobs){
+    this.settings=settings;this.items=items;this.jobs=jobs;
+  }
+
   private TvSettings s(){return settings.findById(1L).orElseGet(()->settings.save(new TvSettings()));}
   @GetMapping("/settings") TvSettings getSettings(){return s();}
   @PutMapping("/settings") TvSettings save(@RequestBody TvSettings in){in.id=1L;return settings.save(in);}
+
   record Online(String deviceId){}
-  @PostMapping("/online") Map<String,Object> online(@RequestBody Online r){TvSettings s=s();return Map.of("notificationSent",s.enabled&&s.notifyOnTvStart&&Objects.equals(s.deviceId,r.deviceId())&&send(s));}
-  @PostMapping("/send-watchlist") Map<String,Object> sendNow(){return Map.of("notificationSent",send(s()));}
-  private boolean send(TvSettings s){
-    if(!s.enabled||tvUrl==null||tvUrl.isBlank()) return false;
-    List<WatchItem> list=items.findAll().stream().filter(i->!s.onlyUnwatched||!"WATCHED".equals(i.status)).limit(s.maxItems).toList();
+  @PostMapping("/online")
+  Map<String,Object> online(@RequestBody Online r){
+    TvSettings cfg=s();
+    boolean queued=cfg.enabled&&cfg.notifyOnTvStart&&Objects.equals(cfg.deviceId,r.deviceId())&&queue(cfg);
+    return Map.of("notificationQueued",queued);
+  }
+
+  @PostMapping("/send-watchlist")
+  Map<String,Object> sendNow(){return Map.of("notificationQueued",queue(s()));}
+
+  @GetMapping("/jobs/pending")
+  List<TvJob> pending(@RequestParam String deviceId,@RequestHeader(value="X-Bridge-Key",required=false) String key){
+    requireBridge(key);
+    return jobs.findTop10ByDeviceIdAndStatusOrderByCreatedAtAsc(deviceId,"PENDING");
+  }
+
+  @PostMapping("/jobs/{id}/delivered")
+  TvJob delivered(@PathVariable UUID id,@RequestHeader(value="X-Bridge-Key",required=false) String key){
+    requireBridge(key);
+    TvJob job=jobs.findById(id).orElseThrow();
+    job.status="DELIVERED";job.deliveredAt=Instant.now();
+    return jobs.save(job);
+  }
+
+  @Scheduled(fixedDelay=60000)
+  public void periodic(){
+    TvSettings cfg=s();
+    if(!cfg.enabled||!cfg.periodicEnabled) return;
+    Instant due=cfg.lastPeriodicSentAt==null?Instant.EPOCH:cfg.lastPeriodicSentAt.plusSeconds(Math.max(1,cfg.periodMinutes)*60L);
+    if(Instant.now().isBefore(due)) return;
+    if(queue(cfg)){cfg.lastPeriodicSentAt=Instant.now();settings.save(cfg);}
+  }
+
+  private boolean queue(TvSettings cfg){
+    if(!cfg.enabled) return false;
+    List<WatchItem> list=items.findAll().stream()
+      .filter(i->!cfg.onlyUnwatched||!"WATCHED".equals(i.status))
+      .sorted(Comparator.comparing((WatchItem i)->i.createdAt).reversed())
+      .limit(Math.max(1,cfg.maxItems)).toList();
     if(list.isEmpty()) return false;
-    StringBuilder msg=new StringBuilder();int n=1;for(WatchItem i:list)msg.append(n++).append(". ").append(i.title).append("\n");
-    try{
-      var req=rest.post().uri(tvUrl).contentType(MediaType.APPLICATION_JSON);
-      if(tvKey!=null&&!tvKey.isBlank()) req=req.header("X-API-Key",tvKey);
-      req.body(Map.of("deviceId",s.deviceId,"title","WatchCue • Things to watch","message",msg.toString().trim())).retrieve().toBodilessEntity();
-      return true;
-    }catch(Exception e){return false;}
+    StringBuilder msg=new StringBuilder();int n=1;
+    for(WatchItem i:list) msg.append(n++).append(". ").append(i.title).append("\n");
+    TvJob job=new TvJob();job.deviceId=cfg.deviceId;job.title="WatchCue • Things to watch";job.message=msg.toString().trim();
+    jobs.save(job);return true;
+  }
+
+  private void requireBridge(String key){
+    if(bridgeKey==null||bridgeKey.isBlank()||!Objects.equals(bridgeKey,key))
+      throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED,"Invalid bridge key");
   }
 }
 
