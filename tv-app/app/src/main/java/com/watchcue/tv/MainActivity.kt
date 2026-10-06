@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::class.java != null && Settings.canDrawOverlays(this)) {
+        if (Settings.canDrawOverlays(this)) {
             (findViewById<android.view.View>(android.R.id.content) as? android.view.ViewGroup)
                 ?.getChildAt(0)
                 ?.let { view ->
