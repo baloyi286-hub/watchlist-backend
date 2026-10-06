@@ -15,6 +15,13 @@ android {
         buildConfigField("String", "DEVICE_ID", "\"living-room-tv\"")
         buildConfigField("String", "BRIDGE_KEY", "\""+(project.findProperty("WATCHCUE_TV_BRIDGE_KEY") ?: "")+"\"")
     }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
     buildFeatures { buildConfig = true }
 }
 dependencies {
