@@ -4,10 +4,10 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.IBinder
+import android.os.IBinder\nimport android.provider.Settings
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
-import okhttp3.*
+import okhttp3.*\nimport okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import java.util.concurrent.TimeUnit
 
@@ -35,17 +35,35 @@ class ReminderService : Service() {
                 val jobs = pendingJobs()
                 if (jobs.length() > 0) {
                     val job = jobs.getJSONObject(0)
-                    val intent = Intent(this, ReminderActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        .putExtra("jobId", job.getString("id"))
-                        .putExtra("title", job.optString("title", "WatchCue"))
-                        .putExtra("message", job.optString("message", "Your watchlist is waiting."))
-                    startActivity(intent)
+                    if (Settings.canDrawOverlays(this@ReminderService)) {
+                        ReminderOverlay.show(
+                            context = this@ReminderService,
+                            jobId = job.getString("id"),
+                            title = job.optString("title", "WatchCue"),
+                            message = job.optString("message", "Your watchlist is waiting."),
+                            onDismissed = { acknowledge(job.getString("id")) }
+                        )
+                    } else {
+                        val intent = Intent(this@ReminderService, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                    }
                 }
             } catch (_: Exception) {
                 // Keep the service alive and retry on the next poll.
             }
             delay(15_000)
+        }
+    }
+
+    private fun acknowledge(jobId: String) {
+        val request = Request.Builder()
+            .url("${BuildConfig.API_BASE_URL}/tv/jobs/$jobId/delivered")
+            .header("X-Bridge-Key", BuildConfig.BRIDGE_KEY)
+            .post(ByteArray(0).toRequestBody(null))
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("Acknowledge HTTP ${response.code}")
         }
     }
 
