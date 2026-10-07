@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
@@ -19,14 +21,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class ReminderService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SCREEN_ON) {
+                Log.i(TAG, "TV screen turned on; notifying backend")
+                scope.launch { notifyOnline("screen_on") }
+            }
+        }
+    }
+
     private val client = OkHttpClient.Builder()
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
@@ -36,10 +49,19 @@ class ReminderService : Service() {
         createServiceChannel()
         startForeground(SERVICE_NOTIFICATION_ID, serviceNotification())
         Log.i(TAG, "ReminderService created; overlayAllowed=${Settings.canDrawOverlays(this)}")
-        scope.launch { pollLoop() }
+        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_SCREEN_ON))
+        scope.launch {
+            notifyOnline("service_start")
+            pollLoop()
+        }
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {
+            // Receiver may already be unregistered during shutdown.
+        }
         scope.cancel()
         super.onDestroy()
     }
@@ -84,6 +106,29 @@ class ReminderService : Service() {
             }
 
             delay(POLL_INTERVAL_MS)
+        }
+    }
+
+    private fun notifyOnline(reason: String) {
+        try {
+            val json = JSONObject()
+                .put("deviceId", BuildConfig.DEVICE_ID)
+                .toString()
+
+            val request = Request.Builder()
+                .url("${BuildConfig.API_BASE_URL}/tv/online")
+                .post(json.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    error("TV online HTTP ${response.code}")
+                }
+            }
+
+            Log.i(TAG, "TV online signal sent; reason=$reason")
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to send TV online signal; reason=$reason", e)
         }
     }
 
