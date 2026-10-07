@@ -76,6 +76,7 @@ class TvJob {
 }
 interface TvJobRepository extends JpaRepository<TvJob,UUID> {
   List<TvJob> findTop10ByDeviceIdAndStatusOrderByCreatedAtAsc(String deviceId,String status);
+  List<TvJob> findByDeviceIdAndStatus(String deviceId,String status);
 }
 
 @RestController
@@ -165,7 +166,14 @@ class TvController {
   @PostMapping("/online")
   Map<String,Object> online(@RequestBody Online r){
     TvSettings cfg=s();
-    boolean queued=cfg.enabled&&cfg.notifyOnTvStart&&Objects.equals(cfg.deviceId,r.deviceId())&&queue(cfg);
+    if(!cfg.enabled||!cfg.notifyOnTvStart||!Objects.equals(cfg.deviceId,r.deviceId()))
+      return Map.of("notificationQueued",false);
+
+    // A TV wake-up is a fresh reminder cycle. Expire anything left pending
+    // from an earlier wake so stale reminders can never appear later.
+    expirePending(r.deviceId());
+
+    boolean queued=queue(cfg);
     return Map.of("notificationQueued",queued);
   }
 
@@ -195,8 +203,23 @@ class TvController {
     if(queue(cfg)){cfg.lastPeriodicSentAt=Instant.now();settings.save(cfg);}
   }
 
+  private void expirePending(String deviceId){
+    List<TvJob> pending=jobs.findByDeviceIdAndStatus(deviceId,"PENDING");
+    if(pending.isEmpty()) return;
+    Instant now=Instant.now();
+    for(TvJob job:pending){
+      job.status="EXPIRED";
+      job.deliveredAt=now;
+    }
+    jobs.saveAll(pending);
+  }
+
   private boolean queue(TvSettings cfg){
     if(!cfg.enabled) return false;
+
+    // Keep at most one pending popup for a TV. Repeated screen-on/service
+    // signals therefore cannot create duplicate reminders.
+    if(!jobs.findByDeviceIdAndStatus(cfg.deviceId,"PENDING").isEmpty()) return false;
     List<WatchItem> list=items.findAll().stream()
       .filter(i->!cfg.onlyUnwatched||!"WATCHED".equals(i.status))
       .sorted(Comparator.comparing((WatchItem i)->i.createdAt).reversed())
