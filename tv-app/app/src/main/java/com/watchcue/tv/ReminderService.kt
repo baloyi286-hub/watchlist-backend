@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ class ReminderService : Service() {
         super.onCreate()
         createServiceChannel()
         startForeground(SERVICE_NOTIFICATION_ID, serviceNotification())
+        Log.i(TAG, "ReminderService created; overlayAllowed=${Settings.canDrawOverlays(this)}")
         scope.launch { pollLoop() }
     }
 
@@ -46,13 +48,16 @@ class ReminderService : Service() {
     private suspend fun pollLoop() {
         while (scope.isActive) {
             try {
+                Log.d(TAG, "Polling backend for device=${BuildConfig.DEVICE_ID}")
                 val jobs = pendingJobs()
+                Log.i(TAG, "Poll complete; pendingJobs=${jobs.length()}; overlayAllowed=${Settings.canDrawOverlays(this@ReminderService)}")
 
                 if (jobs.length() > 0) {
                     val job = jobs.getJSONObject(0)
                     val jobId = job.getString("id")
 
                     if (Settings.canDrawOverlays(this@ReminderService)) {
+                        Log.i(TAG, "Attempting overlay for job=$jobId")
                         ReminderOverlay.show(
                             context = this@ReminderService,
                             jobId = jobId,
@@ -62,13 +67,17 @@ class ReminderService : Service() {
                                 "Your watchlist is waiting."
                             ),
                             onDismissed = {
+                                Log.i(TAG, "Overlay dismissed; acknowledging job=$jobId")
                                 acknowledge(jobId)
                             }
                         )
+                        Log.i(TAG, "Overlay show() returned for job=$jobId")
+                    } else {
+                        Log.e(TAG, "Pending job exists but SYSTEM_ALERT_WINDOW is not allowed")
                     }
                 }
-            } catch (_: Exception) {
-                // Keep running. The next polling cycle will retry.
+            } catch (e: Exception) {
+                Log.e(TAG, "Reminder polling/display failed", e)
             }
 
             delay(POLL_INTERVAL_MS)
@@ -131,6 +140,7 @@ class ReminderService : Service() {
     }
 
     companion object {
+        private const val TAG = "WatchCueTV"
         private const val SERVICE_CHANNEL_ID = "watchcue_background"
         private const val SERVICE_NOTIFICATION_ID = 2001
         private const val POLL_INTERVAL_MS = 15_000L
