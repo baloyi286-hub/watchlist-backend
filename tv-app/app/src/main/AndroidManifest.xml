@@ -12,6 +12,7 @@
   <application
       android:theme="@style/AppTheme"
       android:label="WatchCue TV"
+      android:icon="@drawable/watchcue_logo"
       android:banner="@drawable/tv_banner">
 
     <activity
