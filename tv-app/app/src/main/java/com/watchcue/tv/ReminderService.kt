@@ -18,6 +18,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -58,19 +59,21 @@ class ReminderService : Service() {
 
                     if (Settings.canDrawOverlays(this@ReminderService)) {
                         Log.i(TAG, "Attempting overlay for job=$jobId")
-                        ReminderOverlay.show(
-                            context = this@ReminderService,
-                            jobId = jobId,
-                            title = job.optString("title", "WatchCue"),
-                            message = job.optString(
-                                "message",
-                                "Your watchlist is waiting."
-                            ),
-                            onDismissed = {
-                                Log.i(TAG, "Overlay dismissed; acknowledging job=$jobId")
-                                acknowledge(jobId)
-                            }
-                        )
+                        withContext(Dispatchers.Main) {
+                            ReminderOverlay.show(
+                                context = this@ReminderService,
+                                jobId = jobId,
+                                title = job.optString("title", "WatchCue"),
+                                message = job.optString(
+                                    "message",
+                                    "Your watchlist is waiting."
+                                ),
+                                onDismissed = {
+                                    Log.i(TAG, "Overlay dismissed; acknowledging job=$jobId")
+                                    acknowledge(jobId)
+                                }
+                            )
+                        }
                         Log.i(TAG, "Overlay show() returned for job=$jobId")
                     } else {
                         Log.e(TAG, "Pending job exists but SYSTEM_ALERT_WINDOW is not allowed")
