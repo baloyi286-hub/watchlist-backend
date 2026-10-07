@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.WindowManager
+import android.util.Log
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -23,8 +24,12 @@ object ReminderOverlay {
         message: String,
         onDismissed: () -> Unit
     ) {
-        if (visibleJobId != null) return
+        if (visibleJobId != null) {
+            Log.w("WatchCueTV", "Overlay skipped; already showing job=$visibleJobId")
+            return
+        }
         visibleJobId = jobId
+        Log.i("WatchCueTV", "Building overlay for job=$jobId")
 
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val density = context.resources.displayMetrics.density
@@ -86,7 +91,14 @@ object ReminderOverlay {
             } else false
         }
 
-        wm.addView(panel, params)
-        dismiss.requestFocus()
+        try {
+            wm.addView(panel, params)
+            Log.i("WatchCueTV", "Overlay added to WindowManager for job=$jobId")
+            dismiss.requestFocus()
+        } catch (e: Exception) {
+            visibleJobId = null
+            Log.e("WatchCueTV", "WindowManager.addView failed for job=$jobId", e)
+            throw e
+        }
     }
 }
